@@ -11,13 +11,17 @@ import { radarCommand } from "./commands/radar.js";
 import { upCommand, downCommand } from "./commands/daemon.js";
 import { doctorCommand } from "./commands/doctor.js";
 import { exportCommand } from "./commands/export.js";
+import { draftCommand } from "./commands/draft.js";
+import { auditCommand } from "./commands/audit.js";
+import { reviseCommand } from "./commands/revise.js";
+import { agentCommand } from "./commands/agent.js";
 
 const program = new Command();
 
 program
   .name("inkos")
   .description("InkOS — Multi-agent novel production system")
-  .version("0.1.0");
+  .version("0.2.0");
 
 program.addCommand(initCommand);
 program.addCommand(configCommand);
@@ -30,5 +34,9 @@ program.addCommand(upCommand);
 program.addCommand(downCommand);
 program.addCommand(doctorCommand);
 program.addCommand(exportCommand);
+program.addCommand(draftCommand);
+program.addCommand(auditCommand);
+program.addCommand(reviseCommand);
+program.addCommand(agentCommand);
 
 program.parse();

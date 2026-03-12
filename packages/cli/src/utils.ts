@@ -3,6 +3,26 @@ import { join, resolve } from "node:path";
 import { config as loadEnv } from "dotenv";
 import { createLLMClient, type ProjectConfig, ProjectConfigSchema } from "@actalk/inkos-core";
 
+export async function resolveContext(opts: {
+  readonly context?: string;
+  readonly contextFile?: string;
+}): Promise<string | undefined> {
+  if (opts.context) return opts.context;
+  if (opts.contextFile) {
+    return readFile(resolve(opts.contextFile), "utf-8");
+  }
+  // Read from stdin if piped (non-TTY)
+  if (!process.stdin.isTTY) {
+    const chunks: Buffer[] = [];
+    for await (const chunk of process.stdin) {
+      chunks.push(chunk as Buffer);
+    }
+    const text = Buffer.concat(chunks).toString("utf-8").trim();
+    if (text.length > 0) return text;
+  }
+  return undefined;
+}
+
 export function findProjectRoot(): string {
   return process.cwd();
 }
