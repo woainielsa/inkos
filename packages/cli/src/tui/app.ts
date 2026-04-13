@@ -110,11 +110,30 @@ export async function launchTui(
   projectRoot: string,
   toolsOverride?: InteractionRuntimeTools,
 ): Promise<void> {
-  // Terminal.app has a CoreGraphics bug where UTF-8 bytes (e.g. CJK, em dash)
-  // end up in color space pointers during ANSI color rendering, causing SIGSEGV.
-  // Disable all color output to avoid triggering the crash.
+  // Terminal.app has a CoreGraphics bug: when it sees partial CJK UTF-8 bytes
+  // across multiple write() calls, the font glyph cache gets corrupted (text bytes
+  // end up in pointer fields → SIGSEGV in CGFontStrikeGetValue).
+  // Fix: buffer all writes within a single event-loop tick and flush once,
+  // so Terminal.app always sees complete frames. Same approach as Claude Code's
+  // single-write buffering in writeDiffToTerminal().
   if (isAppleTerminal) {
-    process.env.FORCE_COLOR = "0";
+    let buffer = "";
+    const originalWrite = process.stdout.write.bind(process.stdout);
+    let scheduled = false;
+
+    process.stdout.write = ((chunk: string | Uint8Array): boolean => {
+      buffer += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString();
+      if (!scheduled) {
+        scheduled = true;
+        process.nextTick(() => {
+          scheduled = false;
+          const content = buffer;
+          buffer = "";
+          originalWrite(content);
+        });
+      }
+      return true;
+    }) as typeof process.stdout.write;
   }
 
   projectRoot = await resolveProjectRoot(projectRoot);
