@@ -19,8 +19,14 @@ marked.use(markedTerminal({
 const BOLD_ON = "\x1b[1m";
 const BOLD_OFF = "\x1b[22m";
 
+/** Strip ALL ANSI escape sequences from a string. */
+function stripAnsi(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
+}
+
 /**
- * Post-process marked-terminal output:
+ * Full post-processing for terminals with ANSI support (iTerm2, etc.):
  * 1. Strip \x1b[0m (full reset) that overrides Ink's <Text color>
  * 2. Replace `* ` bullets with `· `
  * 3. Convert `**text**` markers to ANSI bold
@@ -33,32 +39,24 @@ function postProcess(text: string): string {
 }
 
 /**
- * Lightweight plain-text markdown for Terminal.app.
- * Strips all ANSI codes to avoid triggering CoreGraphics crashes
- * (Terminal.app misinterprets UTF-8 bytes as color space pointers).
+ * Terminal.app post-processing: use marked-terminal for layout (tables,
+ * lists, indentation) but strip ALL ANSI codes. Box-drawing characters
+ * (┌─┐│└┘) are plain Unicode and survive the strip.
  */
-function renderPlain(text: string): string {
-  return text
-    .replace(/^#{1,6}\s+/gm, "")
-    .replace(/\*\*(.+?)\*\*/g, "$1")
-    .replace(/\*(.+?)\*/g, "$1")
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/^(\s*)[-*]\s/gm, "$1· ");
+function postProcessPlain(text: string): string {
+  return stripAnsi(text)
+    .replace(/^(\s*)\* /gm, "$1· ")
+    .replace(/\*\*(.+?)\*\*/g, "$1");
 }
 
 export function renderMarkdown(text: string): string {
-  // Terminal.app crashes when ANSI escape codes + CJK text hit its
-  // CoreGraphics rendering pipeline. Use plain text as a workaround.
-  if (isAppleTerminal) {
-    return renderPlain(text);
-  }
-
   try {
     const rendered = marked.parse(text);
     if (typeof rendered !== "string") {
       return text;
     }
-    return postProcess(rendered.replace(/\n+$/, ""));
+    const trimmed = rendered.replace(/\n+$/, "");
+    return isAppleTerminal ? postProcessPlain(trimmed) : postProcess(trimmed);
   } catch {
     return text;
   }
