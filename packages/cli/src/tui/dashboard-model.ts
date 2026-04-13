@@ -49,6 +49,7 @@ export interface BuildDashboardViewModelParams {
   readonly lastError?: string;
   readonly sinceTimestamp?: number;
   readonly terminalRows?: number;
+  readonly scrollOffset?: number;
 }
 
 export function buildDashboardViewModel(params: BuildDashboardViewModelParams): DashboardViewModel {
@@ -62,9 +63,13 @@ export function buildDashboardViewModel(params: BuildDashboardViewModelParams): 
   const terminalRows = params.terminalRows ?? process.stdout.rows ?? 24;
   const conversationLimit = Math.max(4, terminalRows - 10);
 
-  const messageRows = params.session.messages
-    .filter((message) => message.timestamp >= sinceTimestamp)
-    .slice(-conversationLimit)
+  const filteredMessages = params.session.messages
+    .filter((message) => message.timestamp >= sinceTimestamp);
+  const scrollOffset = params.scrollOffset ?? 0;
+  const endIndex = filteredMessages.length - scrollOffset;
+  const startIndex = Math.max(0, endIndex - conversationLimit);
+  const messageRows = filteredMessages
+    .slice(startIndex, endIndex > 0 ? endIndex : undefined)
     .map((message, index) => ({
       key: `${message.timestamp}-${index}`,
       label: roleLabel(message.role, params.copy),

@@ -46,6 +46,7 @@ export interface InkTuiDashboardProps {
   readonly slashSuggestions?: ReadonlyArray<string>;
   readonly selectedSlashIndex?: number;
   readonly showComposerCursor?: boolean;
+  readonly scrollOffset?: number;
   readonly onInputChange?: (value: string) => void;
   readonly onSubmit?: (value: string) => void;
 }
@@ -78,6 +79,7 @@ export function InkTuiDashboard(props: InkTuiDashboardProps): React.JSX.Element 
     isSubmitting: props.isSubmitting,
     lastError: props.lastError,
     sinceTimestamp: props.sinceTimestamp,
+    scrollOffset: props.scrollOffset,
   });
   const activeAccent = props.isSubmitting ? WARM_ACCENT : statusColor(model.executionStatus);
   const composer = renderComposerDisplay(props.inputValue, model.composerPlaceholder, props.showComposerCursor ?? false);
@@ -170,6 +172,7 @@ export function InkTuiApp(props: InkTuiAppProps): React.JSX.Element {
   const [lastError, setLastError] = useState<string | undefined>();
   const [sinceTimestamp, setSinceTimestamp] = useState<number | undefined>();
   const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
+  const [scrollOffset, setScrollOffset] = useState(0);
   const [historyState, setHistoryState] = useState<{ cursor: number | null; draft: string }>({
     cursor: null,
     draft: "",
@@ -251,6 +254,10 @@ export function InkTuiApp(props: InkTuiAppProps): React.JSX.Element {
     }
 
     if (key.downArrow) {
+      if (key.shift) {
+        setScrollOffset((cur) => Math.max(0, cur - 3));
+        return;
+      }
       const next = moveHistoryCursor(inputHistory, historyState, inputValue, "down");
       setHistoryState(next.state);
       setInputValue(next.value);
@@ -258,6 +265,11 @@ export function InkTuiApp(props: InkTuiAppProps): React.JSX.Element {
     }
 
     if (key.upArrow) {
+      if (key.shift) {
+        const maxOffset = Math.max(0, session.messages.length - 4);
+        setScrollOffset((cur) => Math.min(maxOffset, cur + 3));
+        return;
+      }
       const next = moveHistoryCursor(inputHistory, historyState, inputValue, "up");
       setHistoryState(next.state);
       setInputValue(next.value);
@@ -348,6 +360,7 @@ export function InkTuiApp(props: InkTuiAppProps): React.JSX.Element {
       setIsSubmitting(true);
       setLastError(undefined);
       setInputValue("");
+      setScrollOffset(0);
       setHistoryState({ cursor: null, draft: "" });
       setSession((current) => createOptimisticUserMessageSession(current, input, userTimestamp));
 
@@ -412,6 +425,7 @@ export function InkTuiApp(props: InkTuiAppProps): React.JSX.Element {
       slashSuggestions={slashSuggestions}
       selectedSlashIndex={selectedSlashIndex}
       showComposerCursor={composerCaret.visible}
+      scrollOffset={scrollOffset}
       onInputChange={(value) => {
         setInputValue(value);
         setSelectedSlashIndex(0);
