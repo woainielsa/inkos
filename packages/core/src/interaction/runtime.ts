@@ -1091,7 +1091,8 @@ export async function runInteractionRequest(params: {
     case "chat": {
       const bookId = request.bookId ?? session.activeBookId;
       const prompt = request.instruction?.trim().toLowerCase() ?? "";
-      const toolResult = params.tools.chat
+      const isSimpleGreeting = /^(hi|hello|hey|你好|嗨|哈喽)$/i.test(prompt);
+      const toolResult = !isSimpleGreeting && params.tools.chat
         ? await params.tools.chat(request.instruction ?? "", {
             bookId,
             automationMode: session.automationMode,

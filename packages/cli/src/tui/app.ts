@@ -1,4 +1,5 @@
-import { basename } from "node:path";
+import { access } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 import {
   appendInteractionMessage,
   processProjectInteractionInput,
@@ -89,10 +90,26 @@ export async function processTuiInput(
   return { ...result, session: nextSession };
 }
 
+async function resolveProjectRoot(cwd: string): Promise<string> {
+  // If CWD is a book directory (contains book.json), walk up to the actual project root.
+  // Structure: <projectRoot>/books/<bookId>/book.json
+  try {
+    await access(join(cwd, "book.json"));
+    const parent = dirname(cwd);
+    if (basename(parent) === "books") {
+      return dirname(parent);
+    }
+  } catch {
+    // not a book directory
+  }
+  return cwd;
+}
+
 export async function launchTui(
   projectRoot: string,
   toolsOverride?: InteractionRuntimeTools,
 ): Promise<void> {
+  projectRoot = await resolveProjectRoot(projectRoot);
   const { hasLlmConfig } = await ensureProject(projectRoot);
   const projectLanguage = await detectProjectLanguage(projectRoot);
   const locale = resolveTuiLocale(process.env, projectLanguage);

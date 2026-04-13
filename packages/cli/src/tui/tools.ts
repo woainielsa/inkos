@@ -40,7 +40,7 @@ export async function createInteractionTools(
   projectRoot: string,
   hooks?: CliInteractionToolHooks,
 ): Promise<InteractionRuntimeTools> {
-  const config = await loadConfig();
+  const config = await loadConfig({ projectRoot });
   const pipeline = new PipelineRunner(buildPipelineConfig(config, projectRoot));
   const state = new StateManager(projectRoot);
   return createInteractionToolsFromDeps(pipeline, state, hooks);

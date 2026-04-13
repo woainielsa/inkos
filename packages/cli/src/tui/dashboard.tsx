@@ -108,9 +108,6 @@ export function InkTuiDashboard(props: InkTuiDashboardProps): React.JSX.Element 
           <ExecutionBadge status={model.executionStatus} color={activeAccent} />
           <Text color={activeAccent}> {model.statusPrimaryLine}</Text>
         </Box>
-        <Text color={model.errorText ? STATUS_ERROR : props.isSubmitting ? WARM_ACCENT : WARM_MUTED}>
-          {"  " + model.statusSecondaryLine}
-        </Text>
 
         {/* Composer input */}
         <Box
@@ -344,6 +341,7 @@ export function InkTuiApp(props: InkTuiAppProps): React.JSX.Element {
       const routed = routeNaturalLanguageIntent(input, {
         activeBookId,
         hasCreationDraft: Boolean(session.creationDraft),
+        hasFailed: session.currentExecution?.status === "failed",
       });
       const userTimestamp = Date.now();
       const assistantDraftTimestamp = routed.intent === "chat" ? userTimestamp + 1 : null;
@@ -433,8 +431,8 @@ function ConversationRow(props: { readonly row: DashboardMessageRow }): React.JS
 
   if (role === "user") {
     return (
-      <Box marginBottom={1}>
-        <Text color={ROLE_USER}>│ </Text>
+      <Box marginBottom={1} columnGap={1}>
+        <Text color={ROLE_USER}>│</Text>
         <Text color={WARM_REPLY}>{content}</Text>
       </Box>
     );
@@ -442,8 +440,8 @@ function ConversationRow(props: { readonly row: DashboardMessageRow }): React.JS
 
   if (role === "system") {
     return (
-      <Box marginBottom={1}>
-        <Text color={ROLE_SYSTEM}>· </Text>
+      <Box marginBottom={1} columnGap={1}>
+        <Text color={ROLE_SYSTEM}>·</Text>
         <Text color={ROLE_SYSTEM}>{content}</Text>
       </Box>
     );
@@ -451,8 +449,8 @@ function ConversationRow(props: { readonly row: DashboardMessageRow }): React.JS
 
   // assistant
   return (
-    <Box marginBottom={1}>
-      <Text color={WARM_ACCENT}>◆ </Text>
+    <Box marginBottom={1} columnGap={1}>
+      <Text color={WARM_ACCENT}>◆</Text>
       <Text color={WARM_REPLY}>{content}</Text>
     </Box>
   );

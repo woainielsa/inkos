@@ -504,7 +504,7 @@ export function createInteractionToolsFromDeps(
             }, null, 2),
           },
         ],
-        { temperature: 0.4, maxTokens: 700 },
+        { temperature: 0.4 },
       );
 
       const parsed = parseCreationDraftResult(response.content);
@@ -561,32 +561,38 @@ export function createInteractionToolsFromDeps(
     chat: async (input, options) => {
       const bookLabel = options.bookId ?? "none";
       const chatRequestOptions = hooks?.getChatRequestOptions?.() ?? {};
-      const response = instrumentedPipeline.config?.client && instrumentedPipeline.config?.model
-        ? await chatCompletion(
-          instrumentedPipeline.config.client,
-          instrumentedPipeline.config.model,
-          [
+      let response: Awaited<ReturnType<typeof chatCompletion>> | undefined;
+      if (instrumentedPipeline.config?.client && instrumentedPipeline.config?.model) {
+        try {
+          response = await chatCompletion(
+            instrumentedPipeline.config.client,
+            instrumentedPipeline.config.model,
+            [
+              {
+                role: "system",
+                content: [
+                  "You are InkOS inside the terminal workbench.",
+                  "Respond conversationally and briefly.",
+                  "If there is no active book, help the user decide what to write next.",
+                  "If there is an active book, keep the answer grounded in that book context.",
+                ].join(" "),
+              },
+              {
+                role: "user",
+                content: `activeBook=${bookLabel}\nautomationMode=${options.automationMode}\nmessage=${input}`,
+              },
+            ],
             {
-              role: "system",
-              content: [
-                "You are InkOS inside the terminal workbench.",
-                "Respond conversationally and briefly.",
-                "If there is no active book, help the user decide what to write next.",
-                "If there is an active book, keep the answer grounded in that book context.",
-              ].join(" "),
+              temperature: chatRequestOptions.temperature ?? 0.4,
+              ...(chatRequestOptions.maxTokens !== undefined && { maxTokens: chatRequestOptions.maxTokens }),
+              onTextDelta: hooks?.onChatTextDelta,
             },
-            {
-              role: "user",
-              content: `activeBook=${bookLabel}\nautomationMode=${options.automationMode}\nmessage=${input}`,
-            },
-          ],
-          {
-            temperature: chatRequestOptions.temperature ?? 0.4,
-            maxTokens: chatRequestOptions.maxTokens ?? 240,
-            onTextDelta: hooks?.onChatTextDelta,
-          },
-        )
-        : undefined;
+          );
+        } catch {
+          // Thinking models (e.g. kimi-k2.5) may return empty content for simple inputs.
+          // Fall through to the built-in reply below.
+        }
+      }
 
       return {
         __interaction: {

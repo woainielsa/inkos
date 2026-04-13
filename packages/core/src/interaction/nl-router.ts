@@ -3,6 +3,7 @@ import type { InteractionRequest } from "./intents.js";
 export interface NaturalLanguageRoutingContext {
   readonly activeBookId?: string;
   readonly hasCreationDraft?: boolean;
+  readonly hasFailed?: boolean;
 }
 
 export function routeNaturalLanguageIntent(
@@ -225,7 +226,7 @@ export function routeNaturalLanguageIntent(
     };
   }
 
-  if (/(为什么|why)/i.test(trimmed)) {
+  if (/(为什么|why)/i.test(trimmed) && context.hasFailed) {
     return {
       intent: "explain_failure",
       ...(bookId ? { bookId } : {}),

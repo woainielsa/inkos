@@ -98,7 +98,7 @@ export function buildDashboardViewModel(params: BuildDashboardViewModelParams): 
       `${params.copy.labels.session} ${params.session.sessionId.slice(-4)}`,
       params.copy.labels.messageCount(params.session.messages.length),
     ].filter(Boolean).join(" · "),
-    statusPrimaryLine: `${params.copy.labels.stage} ${executionLabel} · ${params.copy.labels.mode} ${modeLabel} · ${params.copy.labels.model} ${params.modelLabel}`,
+    statusPrimaryLine: `${params.copy.labels.stage} ${executionLabel} · ${params.copy.labels.model} ${params.modelLabel}`,
     statusSecondaryLine: params.lastError
       ? `${params.copy.labels.error} · ${compactInline(params.lastError)}`
       : params.isSubmitting && latestEventSummary
