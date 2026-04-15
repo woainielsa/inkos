@@ -161,7 +161,7 @@ function normalizeServiceEntry(serviceId: string, value: Record<string, unknown>
     return {
       service: "custom",
       name: decodeURIComponent(serviceId.slice("custom:".length)),
-      ...(typeof value.baseUrl === "string" && value.baseUrl.length > 0 ? { baseUrl: value.baseUrl } : {}),
+      ...(typeof value.baseUrl === "string" && value.baseUrl.length > 0 ? { baseUrl: normalizeBaseUrl(value.baseUrl) } : {}),
       ...(typeof value.temperature === "number" ? { temperature: value.temperature } : {}),
       ...(typeof value.maxTokens === "number" ? { maxTokens: value.maxTokens } : {}),
       ...(value.apiFormat === "chat" || value.apiFormat === "responses" ? { apiFormat: value.apiFormat } : {}),
@@ -173,7 +173,7 @@ function normalizeServiceEntry(serviceId: string, value: Record<string, unknown>
     return {
       service: "custom",
       ...(typeof value.name === "string" && value.name.length > 0 ? { name: value.name } : {}),
-      ...(typeof value.baseUrl === "string" && value.baseUrl.length > 0 ? { baseUrl: value.baseUrl } : {}),
+      ...(typeof value.baseUrl === "string" && value.baseUrl.length > 0 ? { baseUrl: normalizeBaseUrl(value.baseUrl) } : {}),
       ...(typeof value.temperature === "number" ? { temperature: value.temperature } : {}),
       ...(typeof value.maxTokens === "number" ? { maxTokens: value.maxTokens } : {}),
       ...(value.apiFormat === "chat" || value.apiFormat === "responses" ? { apiFormat: value.apiFormat } : {}),
@@ -194,19 +194,29 @@ function normalizeConfigSource(value: unknown): LLMConfigSource {
   return value === "studio" ? "studio" : "env";
 }
 
+/** Ensure custom baseUrl ends with /v1 (common convention for OpenAI-compatible APIs). */
+function normalizeBaseUrl(url: string): string {
+  const trimmed = url.replace(/\/+$/, "");
+  if (/\/v\d+$/.test(trimmed)) return trimmed;
+  return trimmed + "/v1";
+}
+
 function normalizeServiceConfig(raw: unknown): ServiceConfigEntry[] {
   if (Array.isArray(raw)) {
     return raw
       .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object")
-      .map((entry) => ({
-        service: typeof entry.service === "string" && entry.service.length > 0 ? entry.service : "custom",
+      .map((entry) => {
+        const svc = typeof entry.service === "string" && entry.service.length > 0 ? entry.service : "custom";
+        const isCustom = svc === "custom";
+        return {
+        service: svc,
         ...(typeof entry.name === "string" && entry.name.length > 0 ? { name: entry.name } : {}),
-        ...(typeof entry.baseUrl === "string" && entry.baseUrl.length > 0 ? { baseUrl: entry.baseUrl } : {}),
+        ...(typeof entry.baseUrl === "string" && entry.baseUrl.length > 0 ? { baseUrl: isCustom ? normalizeBaseUrl(entry.baseUrl) : entry.baseUrl } : {}),
         ...(typeof entry.temperature === "number" ? { temperature: entry.temperature } : {}),
         ...(typeof entry.maxTokens === "number" ? { maxTokens: entry.maxTokens } : {}),
         ...(entry.apiFormat === "chat" || entry.apiFormat === "responses" ? { apiFormat: entry.apiFormat } : {}),
         ...(typeof entry.stream === "boolean" ? { stream: entry.stream } : {}),
-      }));
+      }; });
   }
 
   if (raw && typeof raw === "object") {
@@ -285,7 +295,7 @@ async function readEnvConfigStatus(root: string): Promise<EnvConfigStatus> {
 }
 
 async function resolveConfiguredServiceBaseUrl(root: string, serviceId: string, inlineBaseUrl?: string): Promise<string | undefined> {
-  if (inlineBaseUrl?.trim()) return inlineBaseUrl.trim();
+  if (inlineBaseUrl?.trim()) return isCustomServiceId(serviceId) ? normalizeBaseUrl(inlineBaseUrl.trim()) : inlineBaseUrl.trim();
 
   if (!isCustomServiceId(serviceId)) {
     return resolveServicePreset(serviceId)?.baseUrl;
@@ -790,71 +800,41 @@ export function createStudioServer(initialConfig: ProjectConfig, root: string) {
       return c.json({ ok: false, error: `未知服务商: ${service}` }, 400);
     }
 
-    // Call the real /models API — no fallback
+    // Try /models API — validates key + discovers models in one call
     const modelsUrl = resolvedBaseUrl.replace(/\/$/, "") + "/models";
+    let models: Array<{ id: string; name: string }> = [];
     try {
       const res = await fetch(modelsUrl, {
         headers: { Authorization: `Bearer ${apiKey.trim()}` },
         signal: AbortSignal.timeout(10_000),
       });
 
-      if (!res.ok) {
-        const body = await res.text().catch(() => "");
-        if (res.status === 401 || res.status === 403) {
-          return c.json({ ok: false, error: "API Key 无效，请检查后重试" }, 400);
-        }
-        return c.json({ ok: false, error: `服务商返回 ${res.status}: ${body.slice(0, 200)}` }, 400);
+      if (res.status === 401 || res.status === 403) {
+        return c.json({ ok: false, error: "API Key 无效，请检查后重试" }, 400);
       }
 
-      const json = await res.json() as { data?: Array<{ id: string; owned_by?: string }> };
-      const models = (json.data ?? []).map((m) => ({ id: m.id, name: m.id }));
-
-      if (models.length === 0) {
-        return c.json({ ok: false, error: "连接成功但未返回可用模型" }, 400);
+      if (res.ok) {
+        const json = await res.json() as { data?: Array<{ id: string; owned_by?: string }> };
+        models = (json.data ?? []).map((m) => ({ id: m.id, name: m.id }));
       }
-
-      const rawConfig = await loadRawConfig(root).catch(() => ({} as Record<string, unknown>));
-      const preferredModel = typeof (rawConfig.llm as Record<string, unknown> | undefined)?.defaultModel === "string"
-        ? String((rawConfig.llm as Record<string, unknown>).defaultModel)
-        : undefined;
-      const sampleModel = models.find((m) => m.id === preferredModel)?.id
-        ?? models.find((m) => m.id === "gpt-5.4")?.id
-        ?? models[0]?.id;
-      if (sampleModel) {
-        const client = createLLMClient({
-          provider: service === "anthropic" ? "anthropic" : "openai",
-          service: isCustomServiceId(service) ? "custom" : service,
-          configSource: "studio",
-          baseUrl: resolvedBaseUrl,
-          apiKey: apiKey.trim(),
-          model: sampleModel,
-          temperature: 0.7,
-          maxTokens: 64,
-          thinkingBudget: 0,
-          apiFormat: apiFormat ?? "chat",
-          stream: stream ?? true,
-        } as ProjectConfig["llm"]);
-
-        try {
-          await chatCompletion(
-            client,
-            sampleModel,
-            [{ role: "user", content: "ping" }],
-            { maxTokens: 5 },
-          );
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          return c.json({ ok: false, error: `模型列表可读，但生成测试失败：${message}` }, 400);
-        }
-      }
-
-      return c.json({ ok: true, modelCount: models.length, models: models.slice(0, 50) });
     } catch (err: any) {
       if (err?.name === "TimeoutError" || err?.name === "AbortError") {
         return c.json({ ok: false, error: `连接超时：无法访问 ${modelsUrl}` }, 400);
       }
-      return c.json({ ok: false, error: `连接失败: ${err?.message ?? String(err)}` }, 400);
+      // Network error — continue to fallback
     }
+
+    // /models unavailable (404 etc.) — fallback to pi-ai built-in model list
+    if (models.length === 0) {
+      const builtIn = await listModelsForService(service);
+      models = builtIn.map((m) => ({ id: m.id, name: m.name }));
+    }
+
+    if (models.length === 0) {
+      return c.json({ ok: false, error: "未找到可用模型" }, 400);
+    }
+
+    return c.json({ ok: true, modelCount: models.length, models: models.slice(0, 50) });
   });
 
   app.put("/api/v1/services/:service/secret", async (c) => {
@@ -888,7 +868,7 @@ export function createStudioServer(initialConfig: ProjectConfig, root: string) {
     const resolvedBaseUrl = await resolveConfiguredServiceBaseUrl(root, service);
     if (!resolvedBaseUrl) return c.json({ models: [] });
 
-    // Call real API only
+    // Call real /models API, fallback to pi-ai built-in list
     let models: Array<{ id: string; name: string }> = [];
     try {
       const modelsUrl = resolvedBaseUrl.replace(/\/$/, "") + "/models";
@@ -900,7 +880,11 @@ export function createStudioServer(initialConfig: ProjectConfig, root: string) {
         const json = await res.json() as { data?: Array<{ id: string }> };
         models = (json.data ?? []).map((m) => ({ id: m.id, name: m.id }));
       }
-    } catch { /* timeout or network error — return empty */ }
+    } catch { /* timeout or network error */ }
+    if (models.length === 0) {
+      const builtIn = await listModelsForService(service, apiKey);
+      models = builtIn.map((m) => ({ id: m.id, name: m.name }));
+    }
     return c.json({ models });
   });
 
@@ -1331,7 +1315,7 @@ export function createStudioServer(initialConfig: ProjectConfig, root: string) {
             service: configuredEntry?.service ?? reqService ?? config.llm.service,
             model: reqModel ?? config.llm.model,
             apiKey: agentApiKey ?? config.llm.apiKey,
-            baseUrl: configuredEntry?.baseUrl ?? config.llm.baseUrl,
+            baseUrl: configuredEntry?.baseUrl ?? "",
             ...(configuredEntry?.apiFormat ? { apiFormat: configuredEntry.apiFormat } : {}),
             ...(configuredEntry?.stream !== undefined ? { stream: configuredEntry.stream } : {}),
           } as ProjectConfig["llm"]);
@@ -1366,7 +1350,7 @@ export function createStudioServer(initialConfig: ProjectConfig, root: string) {
             service: configuredEntry?.service ?? reqService ?? config.llm.service,
             model: reqModel ?? config.llm.model,
             apiKey: agentApiKey ?? config.llm.apiKey,
-            baseUrl: configuredEntry?.baseUrl ?? config.llm.baseUrl,
+            baseUrl: configuredEntry?.baseUrl ?? "",
             ...(configuredEntry?.apiFormat ? { apiFormat: configuredEntry.apiFormat } : {}),
             ...(configuredEntry?.stream !== undefined ? { stream: configuredEntry.stream } : {}),
           } as ProjectConfig["llm"]);
@@ -1393,6 +1377,16 @@ export function createStudioServer(initialConfig: ProjectConfig, root: string) {
       await persistBookSession(root, bookSession);
 
       broadcast("agent:complete", { instruction, activeBookId });
+
+      // If a sub_agent created a new book during this session, broadcast book:created
+      // so the sidebar refreshes.
+      if (!activeBookId && collectedToolExecs.some((t) => t.agent === "architect" && t.status === "completed")) {
+        const books = await state.listBooks();
+        const latestBook = books.at(-1);
+        if (latestBook) {
+          broadcast("book:created", { bookId: latestBook });
+        }
+      }
 
       return c.json({
         response: result.responseText,
