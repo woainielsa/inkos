@@ -5,12 +5,26 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 // Models that exist in pi-ai's built-in registry (simulated)
-const KNOWN_MODELS = new Set(["gpt-4o", "kimi-k2.5"]);
+const KNOWN_MODELS = new Set(["gpt-4o", "kimi-k2.5", "MiniMax-M2.7"]);
 
 // Mock pi-ai's getModel — returns undefined for models not in registry (like the real implementation)
 vi.mock("@mariozechner/pi-ai", () => ({
   getModel: vi.fn((provider: string, modelId: string) => {
     if (!KNOWN_MODELS.has(modelId)) return undefined;
+    if (modelId === "MiniMax-M2.7") {
+      return {
+        id: modelId,
+        name: modelId,
+        api: "anthropic-messages",
+        provider: "minimax",
+        baseUrl: "https://api.minimax.io/anthropic",
+        reasoning: true,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 204800,
+        maxTokens: 131072,
+      };
+    }
     return {
       id: modelId,
       name: modelId,
@@ -138,5 +152,22 @@ describe("resolveServiceModel", () => {
     expect(result.apiKey).toBe("sk-corp");
     expect(result.model.id).toBe("gpt-5.4");
     expect(result.model.api).toBe("openai-responses");
+  });
+
+  it("overrides MiniMax pi-ai metadata with our preset baseUrl and api", async () => {
+    await mkdir(join(root, ".inkos"), { recursive: true });
+    await writeFile(
+      join(root, ".inkos", "secrets.json"),
+      JSON.stringify({ services: { minimax: { apiKey: "sk-minimax" } } }),
+    );
+
+    const result = await resolveServiceModel("minimax", "MiniMax-M2.7", root);
+
+    expect(result.apiKey).toBe("sk-minimax");
+    expect(result.model.baseUrl).toBe("https://api.minimax.io/v1");
+    expect(result.model.api).toBe("openai-completions");
+    expect(result.model.reasoning).toBe(true);
+    expect(result.model.contextWindow).toBe(204800);
+    expect(result.model.maxTokens).toBe(131072);
   });
 });

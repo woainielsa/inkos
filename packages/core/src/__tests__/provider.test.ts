@@ -111,6 +111,7 @@ function makeClient(temperature = 0.7, extra: Partial<LLMClient> = {}): LLMClien
   return {
     provider: "openai",
     service: "openai",
+    configSource: "studio",
     apiFormat: "chat",
     stream: true,
     _piModel: MOCK_PI_MODEL,
@@ -283,6 +284,31 @@ describe("chatCompletion via pi-ai", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(mockCompleteSimple).not.toHaveBeenCalled();
     expect(mockStreamSimple).not.toHaveBeenCalled();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps legacy env custom openai-compatible chat on pi-ai path", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    mockCompleteSimple.mockResolvedValue(makeAssistantMessage("legacy ok"));
+
+    const client = makeClient(0.7, {
+      service: "custom",
+      configSource: "env",
+      stream: false,
+      _piModel: {
+        ...MOCK_PI_MODEL,
+        provider: "openai",
+        baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+      },
+    });
+
+    const result = await chatCompletion(client, "gemma-4", [{ role: "user", content: "ping" }]);
+
+    expect(result.content).toBe("legacy ok");
+    expect(mockCompleteSimple).toHaveBeenCalledOnce();
+    expect(fetchMock).not.toHaveBeenCalled();
 
     vi.unstubAllGlobals();
   });

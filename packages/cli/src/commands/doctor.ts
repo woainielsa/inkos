@@ -35,6 +35,49 @@ function buildDoctorProbePlans(
   return plans;
 }
 
+export function buildDoctorModelCandidates(
+  preferredModel: string | undefined,
+  discoveredModels: Array<{ id: string; name: string }>,
+): string[] {
+  const seen = new Set<string>();
+  const candidates: string[] = [];
+  const push = (value: string | undefined | null) => {
+    if (!value || value.trim().length === 0) return;
+    const model = value.trim();
+    if (seen.has(model)) return;
+    seen.add(model);
+    candidates.push(model);
+  };
+
+  push(preferredModel);
+  for (const model of discoveredModels) push(model.id);
+  push("gpt-5.4");
+  push("gpt-4o");
+  push("claude-sonnet-4-6");
+  push("MiniMax-M2.7");
+  push("kimi-k2.5");
+  push("gemini-2.5-flash");
+  return candidates;
+}
+
+async function fetchDoctorModels(
+  baseUrl: string,
+  apiKey: string,
+): Promise<Array<{ id: string; name: string }>> {
+  const modelsUrl = baseUrl.replace(/\/$/, "") + "/models";
+  try {
+    const res = await fetch(modelsUrl, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return [];
+    const json = await res.json() as { data?: Array<{ id: string }> };
+    return (json.data ?? []).map((model) => ({ id: model.id, name: model.id }));
+  } catch {
+    return [];
+  }
+}
+
 export const doctorCommand = new Command("doctor")
   .description("Check environment and project health")
   .option("--repair-node-runtime", "Write .nvmrc and .node-version pinned to Node 22 for this project")
@@ -220,26 +263,38 @@ export const doctorCommand = new Command("doctor")
         let connected = false;
         let detectedDetail = "";
         let lastError = "Unknown error";
+        const discoveredModels = (llmConfig.provider === "openai" && llmConfig.apiKey && llmConfig.baseUrl)
+          ? await fetchDoctorModels(llmConfig.baseUrl, llmConfig.apiKey)
+          : [];
+        const modelCandidates = llmConfig.provider === "openai"
+          ? buildDoctorModelCandidates(llmConfig.model, discoveredModels)
+          : [llmConfig.model];
         const plans = llmConfig.provider === "openai"
           ? buildDoctorProbePlans(llmConfig.apiFormat, llmConfig.stream)
           : [{ apiFormat: (llmConfig.apiFormat ?? "chat") as "chat" | "responses", stream: llmConfig.stream ?? true }];
 
-        for (const plan of plans) {
-          try {
-            const client = createLLMClient({
-              ...llmConfig,
-              apiFormat: plan.apiFormat,
-              stream: plan.stream,
-            });
-            const response = await chatCompletion(client, llmConfig.model, [
-              { role: "user", content: "Say OK" },
-            ], { maxTokens: 16 });
+        for (const model of modelCandidates) {
+          for (const plan of plans) {
+            try {
+              const client = createLLMClient({
+                ...llmConfig,
+                model,
+                apiFormat: plan.apiFormat,
+                stream: plan.stream,
+              });
+              const response = await chatCompletion(client, model, [
+                { role: "user", content: "Say OK" },
+              ], { maxTokens: 16 });
 
-            connected = true;
-            detectedDetail = `OK (model: ${llmConfig.model}, apiFormat=${plan.apiFormat}, stream=${plan.stream}, tokens: ${response.usage.totalTokens})`;
+              connected = true;
+              detectedDetail = `OK (model: ${model}, apiFormat=${plan.apiFormat}, stream=${plan.stream}, tokens: ${response.usage.totalTokens})`;
+              break;
+            } catch (error) {
+              lastError = error instanceof Error ? error.message : String(error);
+            }
+          }
+          if (connected) {
             break;
-          } catch (error) {
-            lastError = error instanceof Error ? error.message : String(error);
           }
         }
 

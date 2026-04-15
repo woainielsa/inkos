@@ -86,6 +86,7 @@ export interface LLMMessage {
 export interface LLMClient {
   readonly provider: "openai" | "anthropic";
   readonly service?: string;
+  readonly configSource?: LLMConfig["configSource"];
   readonly apiFormat: "chat" | "responses";
   readonly stream: boolean;
   readonly _piModel?: PiModel<PiApi>;
@@ -164,6 +165,7 @@ export function createLLMClient(config: LLMConfig): LLMClient {
   return {
     provider,
     service: serviceName,
+    configSource: config.configSource,
     apiFormat,
     stream,
     _piModel: piModel,
@@ -308,7 +310,9 @@ function wrapLLMError(error: unknown, context?: { readonly baseUrl?: string; rea
 }
 
 function shouldUseNativeCustomTransport(client: LLMClient): boolean {
-  return client.service === "custom" && (client.provider === "openai" || client.provider === "anthropic");
+  return client.configSource === "studio"
+    && client.service === "custom"
+    && (client.provider === "openai" || client.provider === "anthropic");
 }
 
 function buildCustomHeaders(client: LLMClient): Record<string, string> {

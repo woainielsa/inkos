@@ -30,20 +30,14 @@ export async function resolveServiceModel(
   const baseService = service.startsWith("custom:") ? "custom" : service;
   const preset = resolveServicePreset(baseService);
   const piProvider = SERVICE_TO_PI_PROVIDER[baseService] ?? "openai";
-
-  // Resolve baseUrl: prefer custom/configured URL, then preset, then pi-ai's built-in
   const apiType = service.startsWith("custom:")
     ? (customApiFormat === "responses" ? "openai-responses" : "openai-completions")
     : (preset?.api ?? "openai-completions");
-  const baseUrl = customBaseUrl ?? preset?.baseUrl ?? "";
+  const configuredBaseUrl = customBaseUrl ?? preset?.baseUrl ?? "";
 
   // Get pi-ai Model — may return undefined for model IDs not in the built-in registry
   const piModel = getModel(piProvider as any, modelId as any) as Model<Api> | undefined;
-
-  // Always construct our own model object to ensure baseUrl and api format match our presets.
-  // pi-ai's built-in model may have a different baseUrl (e.g. international endpoint)
-  // or api format (e.g. anthropic-messages) than what we configure.
-  const effectiveBaseUrl = baseUrl || piModel?.baseUrl || "";
+  const effectiveBaseUrl = configuredBaseUrl || piModel?.baseUrl || "";
   if (!effectiveBaseUrl) {
     throw new Error(
       `Cannot resolve model "${modelId}" for service "${service}": no baseUrl available.`,

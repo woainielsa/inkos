@@ -14,19 +14,6 @@ export interface ArchitectOutput {
   readonly pendingHooks: string;
 }
 
-const DEFAULT_CURRENT_STATE = `| 字段 | 值 |
-|------|-----|
-| 当前章节 | 0 |
-| 当前位置 | 待定 |
-| 主角状态 | 初始状态 |
-| 当前目标 | 待定 |
-| 当前限制 | 无 |
-| 当前敌我 | 无 |
-| 当前冲突 | 无 |`;
-
-const DEFAULT_PENDING_HOOKS = `| hook_id | 起始章节 | 类型 | 状态 | 最近推进 | 预期回收 | 回收节奏 | 备注 |
-|---------|----------|------|------|----------|----------|----------|------|`;
-
 export class ArchitectAgent extends BaseAgent {
   get name(): string {
     return "architect";
@@ -292,7 +279,7 @@ ${finalRequirementsPrompt}`;
     const response = await this.chat([
       { role: "system", content: langPrefix + systemPrompt },
       { role: "user", content: userMessage },
-    ], { temperature: 0.8 });
+    ], { temperature: 0.8, maxTokens: 16384 });
 
     return this.parseSections(response.content);
   }
@@ -689,7 +676,7 @@ ${keyPrinciplesPrompt}`;
         role: "user",
         content: userMessage,
       },
-    ], { temperature: 0.5 });
+    ], { temperature: 0.5, maxTokens: 16384 });
 
     return this.parseSections(response.content);
   }
@@ -778,7 +765,7 @@ prohibitions:
         role: "user",
         content: `请为标题为"${book.title}"的${fanficMode}模式同人小说生成基础设定。目标${book.targetChapters}章，每章${book.chapterWordCount}字。`,
       },
-    ], { temperature: 0.7 });
+    ], { temperature: 0.7, maxTokens: 16384 });
 
     return this.parseSections(response.content);
   }
@@ -817,12 +804,9 @@ ${trimmed}\n`;
       parsedSections.set(normalizedName, content.slice(start, end).trim());
     }
 
-    const extract = (name: string, fallback?: string): string => {
+    const extract = (name: string): string => {
       const section = parsedSections.get(this.normalizeSectionName(name));
       if (!section) {
-        if (fallback !== undefined) {
-          return fallback;
-        }
         throw new Error(`Architect output missing required section: ${name}`);
       }
       if (name !== "pending_hooks") {
@@ -835,8 +819,8 @@ ${trimmed}\n`;
       storyBible: extract("story_bible"),
       volumeOutline: extract("volume_outline"),
       bookRules: extract("book_rules"),
-      currentState: extract("current_state", DEFAULT_CURRENT_STATE),
-      pendingHooks: extract("pending_hooks", DEFAULT_PENDING_HOOKS),
+      currentState: extract("current_state"),
+      pendingHooks: extract("pending_hooks"),
     };
   }
 
