@@ -156,8 +156,10 @@ export const createMessageSlice: StateCreator<ChatStore, [], [], MessageActions>
   },
 
   createDraftSession: (bookId) => {
-    // 前端生成 sessionId（与后端 createBookSession 同格式），暂不持久化到磁盘。
-    // 发送第一条消息时，sendMessage 会调 POST /sessions { sessionId, bookId } 落盘。
+    // 前端生成 sessionId（与后端 createBookSession 同格式），暂不持久化到磁盘，
+    // 也暂不写入 sessionIdsByBook——侧边栏看不到这条 draft。
+    // 发送第一条消息时 sendMessage 会调 POST /sessions { sessionId, bookId } 落盘
+    // 并把 id 追加进 sessionIdsByBook，那一刻侧边栏才出现该会话（带着 title）。
     const sessionId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     set((state) => {
       const runtime = createSessionRuntime({
@@ -170,13 +172,6 @@ export const createMessageSlice: StateCreator<ChatStore, [], [], MessageActions>
         sessions: {
           ...state.sessions,
           [sessionId]: runtime,
-        },
-        sessionIdsByBook: {
-          ...state.sessionIdsByBook,
-          [bookKey(bookId)]: mergeSessionIds(
-            state.sessionIdsByBook[bookKey(bookId)],
-            [sessionId],
-          ),
         },
         activeSessionId: sessionId,
       };
@@ -306,8 +301,17 @@ export const createMessageSlice: StateCreator<ChatStore, [], [], MessageActions>
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ sessionId, bookId: session.bookId }),
         });
+        // 落盘成功：把 isDraft 翻成 false，同时把 sessionId 追加进 sessionIdsByBook
+        // 让侧边栏现在才看到这条会话。
         set((state) => ({
           sessions: updateSession(state.sessions, sessionId, () => ({ isDraft: false })),
+          sessionIdsByBook: {
+            ...state.sessionIdsByBook,
+            [bookKey(session.bookId)]: mergeSessionIds(
+              state.sessionIdsByBook[bookKey(session.bookId)],
+              [sessionId],
+            ),
+          },
         }));
       } catch (err) {
         get().addErrorMessage(sessionId, err instanceof Error ? err.message : String(err));
